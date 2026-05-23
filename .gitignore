@@ -1,0 +1,24 @@
+# Terraform state — contains sensitive resource IDs, never commit
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Node
+node_modules/
+dist/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+.idea
+.vscode
