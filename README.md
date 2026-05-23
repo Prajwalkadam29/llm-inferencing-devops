@@ -23,52 +23,9 @@ For more details on the iii framework: https://iii.dev/docs
 
 ## Architecture
 
-```
-                            Internet
-                               |
-                               | HTTP :80
-                               |
-                    +----------v----------+
-                    |     gateway-vm      |
-                    |     e2-micro        |
-                    |     PUBLIC IP       |
-                    |     nginx :80       |
-                    +----------+---------+
-                               |
-                               | proxy_pass :3111
-                               |
-+----------------------------------------------------------------------+
-|                      GCP us-central1-a                               |
-|                   VPC: iii-vpc  Subnet: 10.0.1.0/24                  |
-|                                                                      |
-|                    +---------------------------+                     |
-|                    |      iii-daemon-vm        |                     |
-|                    |      e2-small             |                     |
-|                    |      PRIVATE ONLY         |                     |
-|                    |                           |                     |
-|                    |  iii-http      :3111      |                     |
-|                    |  RPC broker    :49134     |                     |
-|                    |  iii-state     SQLite     |                     |
-|                    |  iii-queue     builtin    |                     |
-|                    +----------+----------------+                     |
-|                               |                                      |
-|              WebSocket :49134 | WebSocket :49134                     |
-|               +---------------+---------------+                      |
-|               |                               |                      |
-|    +----------v----------+     +--------------v---------+            |
-|    |     caller-vm       |     |      inference-vm      |            |
-|    |     e2-micro        |     |      e2-standard-2     |            |
-|    |     PRIVATE ONLY    |     |      PRIVATE ONLY      |            |
-|    |                     |     |                        |            |
-|    |  caller-worker      |     |  inference-worker      |            |
-|    |  TypeScript/Node.js |     |  Python + torch        |            |
-|    |                     |     |  gemma-3-270m GGUF Q8  |            |
-|    +---------------------+     +------------------------+            |
-|                                                                      |
-|   Cloud NAT: outbound internet only                                  |
-|   (pip install, npm install, HuggingFace model download)             |
-+----------------------------------------------------------------------+
+![Sequence Diagram](assets/llm-inferencing-architecture-diagram.png)
 
+```
 Firewall rules:
   internet  --> gateway-vm:80      ALLOW   (nginx entry point)
   subnet    --> daemon-vm:49134    ALLOW   (RPC WebSocket, workers connect here)
@@ -81,35 +38,7 @@ Firewall rules:
 
 ## Request Flow
 
-```
-curl POST /v1/chat/completions  {"messages": [...]}
-  |
-  +--> nginx (gateway-vm :80)
-        |
-        +--> iii-http (daemon-vm :3111)
-              |
-              +--> http::run_inference_over_http   [caller-worker, caller-vm]
-                    |
-                    +--> iii.trigger('inference::get_response')   [RPC via :49134]
-                          |
-                          +--> inference::get_response   [caller-worker, caller-vm]
-                                |
-                                +--> iii.trigger('inference::run_inference')   [RPC via :49134]
-                                      |
-                                      +--> run_inference_handler   [inference-worker, inference-vm]
-                                            |
-                                            +--> gemma-3-270m.generate()
-                                            |
-                                            +--> {"response": "<model output>"}
-                                      <------
-                                <------
-                          <------
-                    <------
-              <------
-        <------
-  <------
-{"result": {"response": "...", "success": "Workers connected and interoperating."}}
-```
+![Sequence Diagram](assets/llm-inferencing-sequence-diagram.png)
 
 No worker calls another worker directly. All RPC calls go through the iii engine,
 which routes them based on which worker has the function currently registered.
@@ -250,7 +179,7 @@ completes.
 | `gateway-vm` | ~1 min | nginx install and config |
 | `iii-daemon-vm` | ~2 min | iii engine install and service start |
 | `caller-vm` | ~2 min | Node.js and npm install |
-| `inference-vm` | ~8 min | Python, torch, and gemma-3-270m download (~270MB) |
+| `inference-vm` | ~8 min | apt packages + torch CPU (~200MB) + pip deps (~100MB) + gemma-3-270m weights (~270MB) |
 
 Monitor each VM:
 
